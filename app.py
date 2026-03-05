@@ -83,7 +83,7 @@ div[data-testid="element-container"]:has(#adm-plot-wrapper) + div[data-testid="e
 .chat-container::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
 .chat-container::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
 
-/* Quick Ask 按鈕自適應深色/淺色模式 */
+/* Quick Ask 按鈕強制亮色 */
 .quick-chip button {
     border: 1px solid #E2E8F0 !important;
     background: #FFFFFF !important;
@@ -98,35 +98,21 @@ div[data-testid="element-container"]:has(#adm-plot-wrapper) + div[data-testid="e
     background: #F5F3FF !important;
     color: #6D28D9 !important;
 }
-@media (prefers-color-scheme: dark) {
-    .quick-chip button {
-        border-color: #475569 !important;
-        background: #1E293B !important;
-        color: #E2E8F0 !important;
-    }
-    .quick-chip button:hover {
-        border-color: #A78BFA !important;
-        background: #312E81 !important;
-        color: #DDD6FE !important;
-    }
-}
 
-/* 聊天輸入框更明顯 */
+/* 聊天輸入框強制亮色 */
 [data-testid="stChatInput"] {
     border: 2px solid #8B5CF6 !important;
     border-radius: 10px !important;
     box-shadow: 0 0 8px rgba(109, 40, 217, 0.25) !important;
-    background: #FEFEFE !important;
+    background: #FFFFFF !important;
 }
 [data-testid="stChatInput"] textarea {
     font-size: 0.85rem !important;
+    color: #1E293B !important;
+    background-color: transparent !important;
 }
-@media (prefers-color-scheme: dark) {
-    [data-testid="stChatInput"] {
-        border-color: #A78BFA !important;
-        background: #1E293B !important;
-        box-shadow: 0 0 8px rgba(167, 139, 250, 0.35) !important;
-    }
+[data-testid="stChatInputSubmitButton"] {
+    color: #8B5CF6 !important;
 }
 
 /* AI 思考動畫 */
