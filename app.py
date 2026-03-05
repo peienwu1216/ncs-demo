@@ -82,6 +82,68 @@ div[data-testid="element-container"]:has(#adm-plot-wrapper) + div[data-testid="e
 .chat-container::-webkit-scrollbar-track { background: transparent; }
 .chat-container::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
 .chat-container::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+/* Quick Ask 按鈕自適應深色/淺色模式 */
+.quick-chip button {
+    border: 1px solid #E2E8F0 !important;
+    background: #FFFFFF !important;
+    color: #334155 !important;
+    font-size: 0.72rem !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;
+    transition: all 0.2s ease !important;
+}
+.quick-chip button:hover {
+    border-color: #8B5CF6 !important;
+    background: #F5F3FF !important;
+    color: #6D28D9 !important;
+}
+@media (prefers-color-scheme: dark) {
+    .quick-chip button {
+        border-color: #475569 !important;
+        background: #1E293B !important;
+        color: #E2E8F0 !important;
+    }
+    .quick-chip button:hover {
+        border-color: #A78BFA !important;
+        background: #312E81 !important;
+        color: #DDD6FE !important;
+    }
+}
+
+/* 聊天輸入框更明顯 */
+[data-testid="stChatInput"] {
+    border: 2px solid #8B5CF6 !important;
+    border-radius: 10px !important;
+    box-shadow: 0 0 8px rgba(109, 40, 217, 0.25) !important;
+    background: #FEFEFE !important;
+}
+[data-testid="stChatInput"] textarea {
+    font-size: 0.85rem !important;
+}
+@media (prefers-color-scheme: dark) {
+    [data-testid="stChatInput"] {
+        border-color: #A78BFA !important;
+        background: #1E293B !important;
+        box-shadow: 0 0 8px rgba(167, 139, 250, 0.35) !important;
+    }
+}
+
+/* AI 思考動畫 */
+@keyframes typing-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+.typing-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    margin: 0 2px;
+    background: #8B5CF6;
+    border-radius: 50%;
+    animation: typing-pulse 1.2s infinite ease-in-out;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -349,6 +411,8 @@ if "draft_text" not in st.session_state:
     st.session_state.draft_text = DEFAULT_EMR_DRAFT
 if "draft_discarded" not in st.session_state:
     st.session_state.draft_discarded = False
+if "thinking" not in st.session_state:
+    st.session_state.thinking = False
 
 # ==========================================
 # 2. 頂部 Header Bar
@@ -683,47 +747,98 @@ with col_right:
     messages_html = ""
     for m in st.session_state.messages:
         messages_html += render_chat_message(m)
-    messages_html += '<div style="min-height: 1px;"></div>'
+
+    # Typing indicator
+    if st.session_state.thinking:
+        messages_html += """
+        <div style="background: #FFFFFF; border: 1px solid #DDD6FE; border-left: 3px solid #8B5CF6; padding: 10px 12px; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+            <div style="font-size: 0.65rem; color: #64748B; margin-bottom: 6px;">
+                <b style="color: #6D28D9;">🤖 NCS-MIMO Agent</b> <span style="margin: 0 4px;">|</span> <i>Analyzing...</i>
+            </div>
+            <div style="display: flex; align-items: center; gap: 4px; padding: 4px 0;">
+                <span class="typing-dot"></span>
+                <span class="typing-dot"></span>
+                <span class="typing-dot"></span>
+                <span style="font-size: 0.7rem; color: #8B5CF6; margin-left: 6px; font-style: italic;">Reviewing sensor data...</span>
+            </div>
+        </div>"""
+
+    messages_html += '<div id="chat-anchor" style="min-height: 1px;"></div>'
+
+    render_id = int(time.time() * 1000)
+    scroll_id = f"chat-scroll-{render_id}"
 
     chat_container_html = f"""
-<div class="chat-container" id="chat-scroll" style="height: 280px; overflow-y: auto; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 10px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+<div class="chat-container" id="{scroll_id}" style="height: 280px; overflow-y: auto; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 10px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
     {messages_html}
 </div>
-<script>
-    // Auto-scroll chat to bottom
-    var chatEl = document.getElementById('chat-scroll');
-    if (chatEl) chatEl.scrollTop = chatEl.scrollHeight;
+<script id="script-{render_id}">
+    // Robust auto-scroll: immediate + delayed + MutationObserver
+    (function() {{
+        function scrollToBottom() {{
+            var el = document.getElementById('{scroll_id}');
+            if (el) el.scrollTop = el.scrollHeight;
+        }}
+        scrollToBottom();
+        setTimeout(scrollToBottom, 100);
+        setTimeout(scrollToBottom, 300);
+        setTimeout(scrollToBottom, 600);
+        // Watch for dynamic content changes
+        var target = document.getElementById('{scroll_id}');
+        if (target) {{
+            var observer = new MutationObserver(scrollToBottom);
+            observer.observe(target, {{ childList: true, subtree: true }});
+        }}
+    }})();
 </script>
 """
     st.html(chat_container_html)
 
-    # 3. 建議 chips
+    # 3. 建議 chips (自適應深淺色模式)
     st.markdown("<div style='font-size: 0.65rem; color: #64748B; margin-bottom: 4px;'>💡 Quick ask:</div>", unsafe_allow_html=True)
     chip_c1, chip_c2 = st.columns(2)
     with chip_c1:
-        if st.button("🍽 Safe for oral feeding?", key="chip1", use_container_width=True):
-            now_str = datetime.now().strftime("%I:%M %p")
-            user_text = "Is this patient safe for oral feeding?"
-            st.session_state.messages.append({"role": "user", "content": user_text, "actions": [], "time": now_str})
-            resp = get_ai_response(user_text)
-            st.session_state.messages.append({"role": "ai", "content": resp["text"], "actions": resp["actions"], "time": now_str})
-            st.rerun()
+        with st.container():
+            st.markdown('<div class="quick-chip">', unsafe_allow_html=True)
+            if st.button("🍽 Safe for oral feeding?", key="chip1", use_container_width=True):
+                now_str = datetime.now().strftime("%I:%M %p")
+                user_text = "Is this patient safe for oral feeding?"
+                st.session_state.messages.append({"role": "user", "content": user_text, "actions": [], "time": now_str})
+                # Show thinking indicator first
+                st.session_state.thinking = True
+                st.session_state._pending_query = user_text
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
     with chip_c2:
-        if st.button("📊 Compare to yesterday", key="chip2", use_container_width=True):
-            now_str = datetime.now().strftime("%I:%M %p")
-            user_text = "Compare to yesterday"
-            st.session_state.messages.append({"role": "user", "content": user_text, "actions": [], "time": now_str})
-            resp = get_ai_response(user_text)
-            st.session_state.messages.append({"role": "ai", "content": resp["text"], "actions": resp["actions"], "time": now_str})
-            st.rerun()
+        with st.container():
+            st.markdown('<div class="quick-chip">', unsafe_allow_html=True)
+            if st.button("📊 Compare to yesterday", key="chip2", use_container_width=True):
+                now_str = datetime.now().strftime("%I:%M %p")
+                user_text = "Compare to yesterday"
+                st.session_state.messages.append({"role": "user", "content": user_text, "actions": [], "time": now_str})
+                st.session_state.thinking = True
+                st.session_state._pending_query = user_text
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
-    # 4. 使用者輸入框 (Streamlit chat_input)
-    user_input = st.chat_input("Ask about this patient...", key="copilot_input")
+    # 4. 使用者輸入框 (更明顯的樣式已在 CSS 中處理)
+    user_input = st.chat_input("💬 Ask about this patient...", key="copilot_input")
     if user_input:
         now_str = datetime.now().strftime("%I:%M %p")
         st.session_state.messages.append({"role": "user", "content": user_input, "actions": [], "time": now_str})
-        resp = get_ai_response(user_input)
+        st.session_state.thinking = True
+        st.session_state._pending_query = user_input
+        st.rerun()
+
+    # 4.5 處理 pending thinking → 生成回覆 (模擬 AI 思考延遲)
+    if st.session_state.thinking and hasattr(st.session_state, '_pending_query'):
+        time.sleep(1.2)  # 模擬思考時間
+        query = st.session_state._pending_query
+        now_str = datetime.now().strftime("%I:%M %p")
+        resp = get_ai_response(query)
         st.session_state.messages.append({"role": "ai", "content": resp["text"], "actions": resp["actions"], "time": now_str})
+        st.session_state.thinking = False
+        del st.session_state._pending_query
         st.rerun()
 
     # 5. 病歷草稿 (Auto-generated EMR Draft)
