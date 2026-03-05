@@ -5,6 +5,8 @@ import numpy as np
 import json
 import os
 import time
+import re
+from datetime import datetime
 
 # ==========================================
 # 0. 頁面與 CSS 設定 (針對 14 吋筆電螢幕優化)
@@ -130,6 +132,223 @@ def load_real_data():
         return t, ch1, ch2, events
 
 t, ch1, ch2, events = load_real_data()
+
+# ==========================================
+# 1.5 Rule-Based AI Response Engine
+# ==========================================
+DEFAULT_EMR_DRAFT = (
+    "Objective:\n"
+    "Current swallow profile stable. Water Δt 72 ms, dry clearance Δt 418 ms (WNL). "
+    "Estimated HMPP ~145 mmHg and UES opening ~0.45 s. No sensor evidence of airway "
+    "invasion (PAS < 2, conf 94%). Single isolated borderline Δt event at 12:22.\n\n"
+    "Assessment:\n"
+    "Functional swallow with adequate pharyngeal contractility and timing. "
+    "Low short-term aspiration risk.\n\n"
+    "Plan:\n"
+    "1. SLP bedside evaluation to confirm oral intake safety.\n"
+    "2. Continue NCS-MIMO monitoring for 7 days."
+)
+
+def get_ai_response(user_msg: str) -> dict:
+    """Rule-based AI response matching keywords to pre-authored clinical templates."""
+    msg = user_msg.lower().strip()
+
+    # --- Pattern rules (checked in order, first match wins) ---
+    if any(k in msg for k in ["safe", "oral", "feeding", "eat", "diet", "吃"]):
+        return {
+            "text": (
+                "Based on current NCS-MIMO sensor biomarkers:\n\n"
+                "• Water Δt = 72 ms (normal range 62-128 ms) ✅\n"
+                "• Est. HMPP = ~145 mmHg (> P10 threshold of 83 mmHg) ✅\n"
+                "• PAS < 2 classifier negative (confidence 94%) ✅\n\n"
+                "Sensor data are **consistent with functional swallowing**. "
+                "However, **oral feeding safety must be confirmed by SLP bedside evaluation** — "
+                "sensor findings alone do not constitute clearance for diet advancement."
+            ),
+            "actions": ["📋 Insert to note", "🩺 Request SLP consult"],
+        }
+
+    if any(k in msg for k in ["borderline", "12:22", "134", "prolonged", "flag", "warning", "⚠"]):
+        return {
+            "text": (
+                "At **12:22**, the Water Δt measured **134 ms**, slightly above the "
+                "128 ms upper bound (Park 2021 normative reference).\n\n"
+                "Key context:\n"
+                "• This is a **single isolated event** — the remaining 46 swallows are WNL.\n"
+                "• No concurrent PAS elevation or airway invasion detected.\n"
+                "• Possible causes: motion artifact, partial bolus, or momentary fatigue.\n\n"
+                "**Recommendation:** Monitor next 2-3 swallows. If Δt > 128 ms recurs in ≥ 3 consecutive events, "
+                "escalate to SLP for clinical assessment."
+            ),
+            "actions": ["📋 Add to note", "⚠️ Flag for SLP"],
+        }
+
+    if any(k in msg for k in ["compare", "yesterday", "trend", "history", "過去", "趨勢"]):
+        return {
+            "text": (
+                "📊 **7-Day Longitudinal Trend (Demo-001):**\n\n"
+                "| Day | Δt-Water (ms) | Est. HMPP (mmHg) |\n"
+                "|-----|:---:|:---:|\n"
+                "| D1 | 75 | 142 |\n"
+                "| D2 | 71 | 145 |\n"
+                "| D3 | 73 | 140 |\n"
+                "| D4 | 70 | 148 |\n"
+                "| D5 | 72 | 146 |\n"
+                "| D6 | 74 | 144 |\n"
+                "| D7 (Today) | **72** | **145** |\n\n"
+                "All values are **stable and within normative ranges** over 7 days. "
+                "No deterioration trend detected. The longitudinal profile is consistent with "
+                "a **healthy baseline**."
+            ),
+            "actions": ["📋 Insert to note"],
+        }
+
+    if any(k in msg for k in ["risk", "aspiration", "pas", "airway", "invasion", "風險"]):
+        return {
+            "text": (
+                "**Aspiration Risk Assessment (Demo-001):**\n\n"
+                "🟢 **Overall Risk: LOW**\n\n"
+                "• PAS < 2 classifier: **Negative** (confidence 94%)\n"
+                "• Airway invasion: **Not detected**\n"
+                "• Water Δt: 72 ms (WNL)\n"
+                "• Dry clearance Δt: 418 ms (WNL)\n"
+                "• Est. HMPP: ~145 mmHg (adequate pharyngeal contractility)\n\n"
+                "⚠️ Note: Sensor-based risk assessment is **decision support only**. "
+                "Clinical diagnosis of aspiration risk requires VFSS/FEES gold standard."
+            ),
+            "actions": ["📋 Insert to note", "🔍 Show evidence"],
+        }
+
+    if any(k in msg for k in ["hmpp", "pressure", "contractility", "pharyngeal", "壓力"]):
+        return {
+            "text": (
+                "**Estimated Hyoid-to-Mandible Peak Pressure (HMPP):**\n\n"
+                "• Current estimate: **~145 mmHg** (95% CI: 132–158)\n"
+                "• Model confidence: 94%\n"
+                "• Normative P10 threshold: 83 mmHg (Cock 2017)\n\n"
+                "The estimated HMPP is **well above the P10 threshold**, indicating "
+                "adequate pharyngeal contractility. This is consistent with functional "
+                "bolus propulsion.\n\n"
+                "⚠️ Phase II inference — requires HRIM validation for clinical confirmation."
+            ),
+            "actions": ["📋 Insert to note"],
+        }
+
+    if any(k in msg for k in ["ues", "opening", "sphincter", "上食道"]):
+        return {
+            "text": (
+                "**UES (Upper Esophageal Sphincter) Opening:**\n\n"
+                "• Estimated duration: **~0.45 s** (95% CI: 0.38–0.52)\n"
+                "• Model confidence: 79%\n"
+                "• Status: 🟢 Normal\n\n"
+                "The UES opening duration is within expected range for healthy swallowing. "
+                "No evidence of impaired UES relaxation or premature closure."
+            ),
+            "actions": ["📋 Insert to note"],
+        }
+
+    if any(k in msg for k in ["summary", "report", "overall", "摘要", "總結"]):
+        return {
+            "text": (
+                "**Clinical Summary — Demo-001 (PEI-EN):**\n\n"
+                "Subject presents with a **functional swallow profile**. "
+                "All sensor-derived biomarkers are within normative ranges:\n\n"
+                "• Sequential coordination Δt: WNL (Water 72 ms, Dry 418 ms)\n"
+                "• Est. HMPP: ~145 mmHg (adequate)\n"
+                "• UES opening: ~0.45 s (normal)\n"
+                "• PAS < 2 (no airway invasion detected)\n\n"
+                "One isolated borderline Δt event at 12:22 (134 ms) — not clinically significant.\n\n"
+                "**Recommendation:** SLP bedside evaluation for diet clearance. "
+                "Continue 7-day NCS-MIMO monitoring."
+            ),
+            "actions": ["📋 Insert to note", "📤 Generate EMR draft"],
+        }
+
+    if any(k in msg for k in ["delta", "delay", "coordination", "timing", "時間", "延遲"]):
+        return {
+            "text": (
+                "**Sequential Coordination Δt Analysis:**\n\n"
+                "Δt measures the timing delay between supra- and infra-hyoid muscle activation "
+                "(Tx1Rx1 → Tx2Rx2 peak onset), indicating pharyngeal coordination.\n\n"
+                "• **Water bolus Δt:** 72 ms (normative: 62–128 ms) ✅\n"
+                "• **Dry clearance Δt:** 418 ms (expected longer for dry swallows) ✅\n\n"
+                "Both values indicate **normal sequential coordination**. "
+                "The proprietary Δt biomarker is the key innovation of NCS-MIMO."
+            ),
+            "actions": ["📋 Insert to note", "🔍 Show evidence"],
+        }
+
+    if any(k in msg for k in ["hello", "hi", "hey", "你好", "哈囉"]):
+        return {
+            "text": (
+                "Hello! I'm the NCS-MIMO Clinical Copilot. I can help you with:\n\n"
+                "• 🔍 Interpreting sensor biomarkers (Δt, HMPP, UES)\n"
+                "• ⚠️ Explaining flagged events\n"
+                "• 📊 Comparing longitudinal trends\n"
+                "• 📝 Generating clinical summaries\n\n"
+                "Try asking: *\"Is this patient safe for oral feeding?\"* "
+                "or *\"Why is the Δt borderline at 12:22?\"*"
+            ),
+            "actions": [],
+        }
+
+    # Fallback
+    return {
+        "text": (
+            f"I understand you're asking about: *\"{user_msg}\"*\n\n"
+            "Based on the current session for Demo-001 (PEI-EN), all sensor-derived "
+            "biomarkers are within normative ranges (Water Δt 72 ms, HMPP ~145 mmHg, "
+            "PAS < 2).\n\n"
+            "Could you rephrase or try one of these topics?\n"
+            "• Oral feeding safety\n"
+            "• Borderline event at 12:22\n"
+            "• Trend comparison (7-day)\n"
+            "• Aspiration risk assessment\n"
+            "• HMPP / UES biomarker details"
+        ),
+        "actions": [],
+    }
+
+# Session state initialization
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {
+            "role": "ai",
+            "content": (
+                "Sensor data summary ready for Demo-001.\n"
+                "• Water Δt 72 ms, Dry Δt 438 ms — both WNL.\n"
+                "• Est. HMPP ~145 mmHg, no airway invasion detected (PAS < 2, confidence 94%).\n\n"
+                "Suggested next step: SLP evaluation."
+            ),
+            "actions": ["📋 Insert to note", "🔍 Show evidence"],
+            "time": "09:42 AM",
+        },
+        {
+            "role": "user",
+            "content": "Why is the Δt borderline at 12:22?",
+            "actions": [],
+            "time": "09:43 AM",
+        },
+        {
+            "role": "ai",
+            "content": (
+                "At 12:22, Water Δt = 134 ms, slightly above the 128 ms upper bound (Park 2021).\n\n"
+                "Isolated single-event deviation — not consistent with sustained impairment. "
+                "Recommend monitoring next 2–3 swallows."
+            ),
+            "actions": ["📋 Add to note", "⚠️ Flag for SLP"],
+            "time": "09:43 AM",
+        },
+    ]
+
+if "emr_sent" not in st.session_state:
+    st.session_state.emr_sent = False
+if "editing_draft" not in st.session_state:
+    st.session_state.editing_draft = False
+if "draft_text" not in st.session_state:
+    st.session_state.draft_text = DEFAULT_EMR_DRAFT
+if "draft_discarded" not in st.session_state:
+    st.session_state.draft_discarded = False
 
 # ==========================================
 # 2. 頂部 Header Bar
@@ -371,7 +590,7 @@ with col_mid:
 """
     st.html(pv_phenotype_html)
 # ------------------------------------------
-# 右欄：✨ AI Clinical Copilot 工作區 (對話模式 + EMR 提交)
+# 右欄：✨ AI Clinical Copilot 工作區 (互動式對話 + EMR 提交)
 # ------------------------------------------
 with col_right:
     # 1. 標題與警示區塊
@@ -380,121 +599,206 @@ with col_right:
     <div class="title-text" style="color: #6D28D9; margin: 0;">
         <span style="font-size: 1.1em; margin-right: 4px;">✨</span> AI Clinical Copilot
     </div>
-    <span style="font-size: 0.7rem; color: #64748B; font-style: italic;">LLM-assisted</span>
+    <span style="font-size: 0.7rem; color: #64748B; font-style: italic;">Rule-based</span>
 </div>
 <div class="llm-disclaimer">
     <b>⚠️ DECISION SUPPORT ONLY:</b> AI responses do not constitute clinical diagnosis.
 </div>
 """, unsafe_allow_html=True)
 
-    # 2. 寫死的對話歷史區塊 (直接帶入 Demo 情境)
-    chat_html = """
-<div class="chat-container" style="height: 320px; overflow-y: auto; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 10px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+    # 2. 動態對話歷史區塊 (從 session_state 渲染)
+    def md_to_html(text: str) -> str:
+        """Convert basic Markdown to HTML (bold, italic, tables, newlines).
+        Works with pure regex — no extra dependencies, safe for cloud deploy."""
+        lines = text.split("\n")
+        result_lines = []
+        table_buf = []
 
-    <div style="background: #FFFFFF; border: 1px solid #DDD6FE; border-left: 3px solid #8B5CF6; padding: 8px 10px; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-        <div style="font-size: 0.65rem; color: #64748B; margin-bottom: 6px; border-bottom: 1px solid #F1F5F9; padding-bottom: 4px;">
-            <b style="color: #6D28D9;">🤖 NCS-MIMO Agent</b> <span style="margin: 0 4px;">|</span> <i>AI-generated, not verified</i> <span style="float: right;">09:42 AM</span>
-        </div>
-        <div style="font-size: 0.75rem; color: #334155; line-height: 1.4;">
-            Sensor data summary ready for Demo-001.<br>
-            • Water Δt 72 ms, Dry Δt 438 ms — both WNL.<br>
-            • Est. HMPP ~145 mmHg, no airway invasion detected (PAS &lt; 2, confidence 94%).<br><br>
-            Suggested next step: SLP evaluation.
-        </div>
-        <div style="margin-top: 8px;">
-            <span style="border: 1px solid #CBD5E1; background: #F8FAFC; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; color: #475569; cursor: pointer; display: inline-block; margin-right: 4px;">📋 Insert to note</span>
-            <span style="border: 1px solid #CBD5E1; background: #F8FAFC; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; color: #475569; cursor: pointer; display: inline-block;">🔍 Show evidence</span>
-        </div>
-    </div>
+        def flush_table():
+            if not table_buf:
+                return
+            html = '<table style="width:100%; border-collapse:collapse; font-size:0.7rem; margin:6px 0;">'
+            for idx, row in enumerate(table_buf):
+                cells = [c.strip() for c in row.strip("|").split("|")]
+                # skip separator row (e.g. |---|---|)
+                if all(re.match(r'^[:\-\s]+$', c) for c in cells):
+                    continue
+                tag = "th" if idx == 0 else "td"
+                style_th = 'style="padding:3px 6px; border-bottom:2px solid #E2E8F0; color:#64748B; font-weight:600; text-align:center;"'
+                style_td = 'style="padding:3px 6px; border-bottom:1px solid #F1F5F9; text-align:center;"'
+                style = style_th if idx == 0 else style_td
+                html += "<tr>" + "".join(f"<{tag} {style}>{c}</{tag}>" for c in cells) + "</tr>"
+            html += "</table>"
+            result_lines.append(html)
+            table_buf.clear()
 
-    <div style="background: #EFF6FF; border: 1px solid #BFDBFE; border-right: 3px solid #3B82F6; padding: 8px 10px; border-radius: 6px; margin-left: 15%; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-        <div style="font-size: 0.65rem; color: #64748B; margin-bottom: 6px; border-bottom: 1px solid #DBEAFE; padding-bottom: 4px; text-align: right;">
-            <span style="float: left;">09:43 AM</span> <b style="color: #1D4ED8;">👨‍⚕️ Physician</b>
-        </div>
-        <div style="font-size: 0.75rem; color: #1E3A8A; line-height: 1.4; text-align: right;">
-            Why is the Δt borderline at 12:22?
-        </div>
-    </div>
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("|") and stripped.endswith("|"):
+                table_buf.append(stripped)
+            else:
+                flush_table()
+                result_lines.append(line)
+        flush_table()
 
-    <div style="background: #FFFFFF; border: 1px solid #DDD6FE; border-left: 3px solid #8B5CF6; padding: 8px 10px; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-        <div style="font-size: 0.65rem; color: #64748B; margin-bottom: 6px; border-bottom: 1px solid #F1F5F9; padding-bottom: 4px;">
-            <b style="color: #6D28D9;">🤖 NCS-MIMO Agent</b> <span style="margin: 0 4px;">|</span> <i>AI-generated, not verified</i> <span style="float: right;">09:43 AM</span>
-        </div>
-        <div style="font-size: 0.75rem; color: #334155; line-height: 1.4;">
-            At 12:22, Water Δt = 134 ms, slightly above the 128 ms upper bound (Park 2021).<br><br>
-            Isolated single-event deviation — not consistent with sustained impairment. Recommend monitoring next 2–3 swallows.
-        </div>
-        <div style="margin-top: 8px;">
-            <span style="border: 1px solid #CBD5E1; background: #F8FAFC; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; color: #475569; cursor: pointer; display: inline-block; margin-right: 4px;">📋 Add to note</span>
-            <span style="border: 1px solid #FCA5A5; background: #FEF2F2; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; color: #991B1B; cursor: pointer; display: inline-block;">⚠️ Flag for SLP</span>
-        </div>
-    </div>
-    
-    <div style="min-height: 1px;"></div>
+        text = "\n".join(result_lines)
+        # Bold: **text** → <b>text</b>
+        text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+        # Italic: *text* → <i>text</i>  (but not ** which was already handled)
+        text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<i>\1</i>', text)
+        # Newlines
+        text = text.replace("\n", "<br>")
+        return text
+
+    def render_chat_message(msg):
+        """Render a single chat message as styled HTML with Markdown support."""
+        content_html = md_to_html(msg["content"])
+        if msg["role"] == "ai":
+            actions_html = ""
+            if msg.get("actions"):
+                action_spans = ""
+                for a in msg["actions"]:
+                    if "Flag" in a or "⚠" in a:
+                        action_spans += f'<span style="border: 1px solid #FCA5A5; background: #FEF2F2; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; color: #991B1B; display: inline-block; margin-right: 4px;">{a}</span>'
+                    else:
+                        action_spans += f'<span style="border: 1px solid #CBD5E1; background: #F8FAFC; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; color: #475569; display: inline-block; margin-right: 4px;">{a}</span>'
+                actions_html = f'<div style="margin-top: 8px;">{action_spans}</div>'
+            return f"""
+            <div style="background: #FFFFFF; border: 1px solid #DDD6FE; border-left: 3px solid #8B5CF6; padding: 8px 10px; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                <div style="font-size: 0.65rem; color: #64748B; margin-bottom: 6px; border-bottom: 1px solid #F1F5F9; padding-bottom: 4px;">
+                    <b style="color: #6D28D9;">🤖 NCS-MIMO Agent</b> <span style="margin: 0 4px;">|</span> <i>AI-generated, not verified</i> <span style="float: right;">{msg['time']}</span>
+                </div>
+                <div style="font-size: 0.75rem; color: #334155; line-height: 1.5;">{content_html}</div>
+                {actions_html}
+            </div>"""
+        else:
+            return f"""
+            <div style="background: #EFF6FF; border: 1px solid #BFDBFE; border-right: 3px solid #3B82F6; padding: 8px 10px; border-radius: 6px; margin-left: 15%; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                <div style="font-size: 0.65rem; color: #64748B; margin-bottom: 6px; border-bottom: 1px solid #DBEAFE; padding-bottom: 4px; text-align: right;">
+                    <span style="float: left;">{msg['time']}</span> <b style="color: #1D4ED8;">👨‍⚕️ Physician</b>
+                </div>
+                <div style="font-size: 0.75rem; color: #1E3A8A; line-height: 1.4; text-align: right;">{content_html}</div>
+            </div>"""
+
+    messages_html = ""
+    for m in st.session_state.messages:
+        messages_html += render_chat_message(m)
+    messages_html += '<div style="min-height: 1px;"></div>'
+
+    chat_container_html = f"""
+<div class="chat-container" id="chat-scroll" style="height: 280px; overflow-y: auto; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 10px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+    {messages_html}
 </div>
-
-<div style="display: flex; gap: 6px; margin-bottom: 4px;">
-    <div style="flex-grow: 1; border: 1px solid #CBD5E1; border-radius: 6px; padding: 6px 10px; background: #FFFFFF; font-size: 0.75rem; color: #94A3B8; display: flex; align-items: center; cursor: text;">
-        Ask about this patient...
-    </div>
-    <div style="background: #6D28D9; color: #FFFFFF; border-radius: 6px; padding: 6px 12px; font-size: 0.75rem; font-weight: bold; cursor: pointer; display: flex; align-items: center; transition: background 0.2s;">
-        ➤ Send
-    </div>
-</div>
-
-<div style="font-size: 0.65rem; color: #64748B; margin-bottom: 10px;">
-    💡 Try: 
-    <span style="border: 1px solid #E2E8F0; background: #F8FAFC; padding: 2px 6px; border-radius: 10px; margin-left: 2px; cursor: pointer;">"Is this safe for oral feeding?"</span>
-    <span style="border: 1px solid #E2E8F0; background: #F8FAFC; padding: 2px 6px; border-radius: 10px; margin-left: 2px; cursor: pointer;">"Compare to yesterday"</span>
-</div>
+<script>
+    // Auto-scroll chat to bottom
+    var chatEl = document.getElementById('chat-scroll');
+    if (chatEl) chatEl.scrollTop = chatEl.scrollHeight;
+</script>
 """
-    st.html(chat_html)
+    st.html(chat_container_html)
 
-    # 3. 新增：病歷草稿 (Auto-generated EMR Draft)
+    # 3. 建議 chips
+    st.markdown("<div style='font-size: 0.65rem; color: #64748B; margin-bottom: 4px;'>💡 Quick ask:</div>", unsafe_allow_html=True)
+    chip_c1, chip_c2 = st.columns(2)
+    with chip_c1:
+        if st.button("🍽 Safe for oral feeding?", key="chip1", use_container_width=True):
+            now_str = datetime.now().strftime("%I:%M %p")
+            user_text = "Is this patient safe for oral feeding?"
+            st.session_state.messages.append({"role": "user", "content": user_text, "actions": [], "time": now_str})
+            resp = get_ai_response(user_text)
+            st.session_state.messages.append({"role": "ai", "content": resp["text"], "actions": resp["actions"], "time": now_str})
+            st.rerun()
+    with chip_c2:
+        if st.button("📊 Compare to yesterday", key="chip2", use_container_width=True):
+            now_str = datetime.now().strftime("%I:%M %p")
+            user_text = "Compare to yesterday"
+            st.session_state.messages.append({"role": "user", "content": user_text, "actions": [], "time": now_str})
+            resp = get_ai_response(user_text)
+            st.session_state.messages.append({"role": "ai", "content": resp["text"], "actions": resp["actions"], "time": now_str})
+            st.rerun()
+
+    # 4. 使用者輸入框 (Streamlit chat_input)
+    user_input = st.chat_input("Ask about this patient...", key="copilot_input")
+    if user_input:
+        now_str = datetime.now().strftime("%I:%M %p")
+        st.session_state.messages.append({"role": "user", "content": user_input, "actions": [], "time": now_str})
+        resp = get_ai_response(user_input)
+        st.session_state.messages.append({"role": "ai", "content": resp["text"], "actions": resp["actions"], "time": now_str})
+        st.rerun()
+
+    # 5. 病歷草稿 (Auto-generated EMR Draft)
     st.markdown("<hr style='margin: 4px 0 8px 0; border-color: #E2E8F0;'>", unsafe_allow_html=True)
-    
-    draft_note_html = """
+
+    if not st.session_state.draft_discarded:
+        if st.session_state.editing_draft:
+            # --- 編輯模式 ---
+            st.markdown("""
+<div style="font-size: 0.65rem; font-weight: 700; color: #6D28D9; margin-bottom: 4px;">
+    ✏️ Editing EMR Draft
+</div>""", unsafe_allow_html=True)
+            edited_text = st.text_area(
+                "Edit draft",
+                value=st.session_state.draft_text,
+                height=160,
+                label_visibility="collapsed",
+                key="draft_editor",
+            )
+            save_c1, save_c2 = st.columns(2)
+            with save_c1:
+                if st.button("💾 Save", type="primary", use_container_width=True, key="save_draft"):
+                    st.session_state.draft_text = edited_text
+                    st.session_state.editing_draft = False
+                    st.rerun()
+            with save_c2:
+                if st.button("↩ Cancel", use_container_width=True, key="cancel_edit"):
+                    st.session_state.editing_draft = False
+                    st.rerun()
+        else:
+            # --- 檢視模式 ---
+            draft_display = st.session_state.draft_text.replace("\n", "<br>")
+            draft_note_html = f"""
 <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); position: relative;">
     <div style="position: absolute; top: -8px; left: 10px; background: #FFFFFF; padding: 0 6px; font-size: 0.65rem; font-weight: 700; color: #6D28D9; border: 1px solid #E2E8F0; border-radius: 4px;">
         📄 Auto-generated EMR Draft
     </div>
     <div style="font-size: 0.7rem; color: #334155; line-height: 1.4; margin-top: 6px;">
-        <b>Objective:</b><br>
-        Current swallow profile stable. Water Δt 72 ms, dry clearance Δt 418 ms (WNL). 
-        Estimated HMPP ~145 mmHg and UES opening ~0.45 s. No sensor evidence of airway invasion (PAS &lt; 2, conf 94%). Single isolated borderline Δt event at 12:22.<br><br>
-        
-        <b>Assessment:</b><br>
-        Functional swallow with adequate pharyngeal contractility and timing. Low short-term aspiration risk.<br><br>
-        
-        <b>Plan:</b><br>
-        1. SLP bedside evaluation to confirm oral intake safety.<br>
-        2. Continue NCS-MIMO monitoring for 7 days.
+        {draft_display}
     </div>
 </div>
 """
-    st.html(draft_note_html)
+            st.html(draft_note_html)
 
-    # 4. 提交與編輯按鈕控制邏輯
-    if 'emr_sent' not in st.session_state:
-        st.session_state.emr_sent = False
+            # 6. 提交 / 編輯 / 捨棄 按鈕
+            bc1, bc2, bc3 = st.columns([4, 2, 2])
+            with bc1:
+                if st.button("✔ Accept as Note", type="primary", use_container_width=True, key="accept_btn"):
+                    st.session_state.emr_sent = True
+                    st.rerun()
+            with bc2:
+                if st.button("✏ Edit", use_container_width=True, key="edit_btn"):
+                    st.session_state.editing_draft = True
+                    st.rerun()
+            with bc3:
+                if st.button("✖ Discard", use_container_width=True, key="discard_btn"):
+                    st.session_state.draft_discarded = True
+                    st.session_state.emr_sent = False
+                    st.rerun()
 
-    bc1, bc2, bc3 = st.columns([4, 2, 2])
-    with bc1:
-        if st.button("✔ Accept as Note", type="primary", use_container_width=True):
-            st.session_state.emr_sent = True
-            st.rerun()
-    with bc2:
-        if st.button("✏ Edit", use_container_width=True):
-            pass # Demo 時可說明會展開編輯視窗
-    with bc3:
-        if st.button("✖ Discard", use_container_width=True):
-            st.session_state.emr_sent = False
-            st.rerun()
-            
-    # 5. 成功送出提示
-    if st.session_state.emr_sent:
-        st.markdown("""
+        # 7. 成功送出提示
+        if st.session_state.emr_sent:
+            st.markdown("""
 <div style="background-color: #D1FAE5; border: 1px solid #10B981; color: #065F46; padding: 0.4rem 0.6rem; border-radius: 6px; font-size: 0.8rem; margin-top: 4px; width: 100%; box-sizing: border-box; text-align: center;">
     ✓ Draft sent to EMR (needs sign-off)
 </div>
 """, unsafe_allow_html=True)
+    else:
+        # 草稿已捨棄的狀態
+        st.markdown("""
+<div style="background-color: #FEF2F2; border: 1px solid #FECACA; color: #991B1B; padding: 0.4rem 0.6rem; border-radius: 6px; font-size: 0.8rem; margin-top: 4px; width: 100%; box-sizing: border-box; text-align: center;">
+    ✖ Draft discarded
+</div>
+""", unsafe_allow_html=True)
+        if st.button("🔄 Restore Draft", use_container_width=True, key="restore_btn"):
+            st.session_state.draft_discarded = False
+            st.session_state.draft_text = DEFAULT_EMR_DRAFT
+            st.rerun()
