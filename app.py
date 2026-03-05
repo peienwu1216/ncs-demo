@@ -745,10 +745,7 @@ with col_right:
             </div>"""
 
     messages_html = ""
-    for m in st.session_state.messages:
-        messages_html += render_chat_message(m)
-
-    # Typing indicator
+    # 1. 確保「思考中動畫」放在最前面（反轉後會在最底部）
     if st.session_state.thinking:
         messages_html += """
         <div style="background: #FFFFFF; border: 1px solid #DDD6FE; border-left: 3px solid #8B5CF6; padding: 10px 12px; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
@@ -763,34 +760,14 @@ with col_right:
             </div>
         </div>"""
 
-    messages_html += '<div id="chat-anchor" style="min-height: 1px;"></div>'
-
-    render_id = int(time.time() * 1000)
-    scroll_id = f"chat-scroll-{render_id}"
+    # 2. 將歷史對話反向 (reversed) 迭代加入
+    for m in reversed(st.session_state.messages):
+        messages_html += render_chat_message(m)
 
     chat_container_html = f"""
-<div class="chat-container" id="{scroll_id}" style="height: 280px; overflow-y: auto; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 10px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+<div class="chat-container" style="height: 280px; overflow-y: auto; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column-reverse; gap: 10px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
     {messages_html}
 </div>
-<script id="script-{render_id}">
-    // Robust auto-scroll: immediate + delayed + MutationObserver
-    (function() {{
-        function scrollToBottom() {{
-            var el = document.getElementById('{scroll_id}');
-            if (el) el.scrollTop = el.scrollHeight;
-        }}
-        scrollToBottom();
-        setTimeout(scrollToBottom, 100);
-        setTimeout(scrollToBottom, 300);
-        setTimeout(scrollToBottom, 600);
-        // Watch for dynamic content changes
-        var target = document.getElementById('{scroll_id}');
-        if (target) {{
-            var observer = new MutationObserver(scrollToBottom);
-            observer.observe(target, {{ childList: true, subtree: true }});
-        }}
-    }})();
-</script>
 """
     st.html(chat_container_html)
 
@@ -832,7 +809,7 @@ with col_right:
 
     # 4.5 處理 pending thinking → 生成回覆 (模擬 AI 思考延遲)
     if st.session_state.thinking and hasattr(st.session_state, '_pending_query'):
-        time.sleep(1.2)  # 模擬思考時間
+        time.sleep(1.8)  # 模擬思考時間
         query = st.session_state._pending_query
         now_str = datetime.now().strftime("%I:%M %p")
         resp = get_ai_response(query)
